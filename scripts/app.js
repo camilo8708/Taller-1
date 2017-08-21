@@ -11,7 +11,6 @@
         addDialog: document.querySelector('.dialog-container')
     };
 
-
     /*****************************************************************************
      *
      * Event listeners for UI elements
@@ -29,8 +28,6 @@
     });
 
     document.getElementById('butAddCity').addEventListener('click', function () {
-
-
         var select = document.getElementById('selectTimetableToAdd');
         var selected = select.options[select.selectedIndex];
         var key = selected.value;
@@ -40,6 +37,7 @@
         }
         app.getSchedule(key, label);
         app.selectedTimetables.push({key: key, label: label});
+        app.saveTimetables();
         app.toggleAddDialog(false);
     });
 
@@ -108,12 +106,24 @@
      * Methods for dealing with the model
      *
      ****************************************************************************/
-
-
     app.getSchedule = function (key, label) {
         var url = 'https://api-ratp.pierre-grimaud.fr/v3/schedules/' + key;
-
         var request = new XMLHttpRequest();
+
+        if ('caches' in window) {
+            caches.match(url).then(function(response) {
+                if (response) {
+                    response.json().then(function updateFromCache(json) {
+                        var results = json.query.results;
+                        results.key = key;
+                        results.label = label;
+                        results.created = json.query.created;
+                        app.updateForecastCard(results);
+                    });
+                }
+            });
+        }
+
         request.onreadystatechange = function () {
             if (request.readyState === XMLHttpRequest.DONE) {
                 if (request.status === 200) {
@@ -142,6 +152,47 @@
         });
     };
 
+    // Save list of selectedTimetables to IndexdDB.
+    app.saveTimetables = function() {
+        dbPromise.then(function(db) {
+            var tx = db.transaction('timetables', 'readwrite');
+            var store = tx.objectStore('timetables');
+            store.delete(1);
+            return tx.complete;
+        }).then(function() {
+            dbPromise.then(function(db) {
+                var tx = db.transaction('timetables', 'readwrite');
+                var store = tx.objectStore('timetables');
+                var item = {
+                    key: 1,
+                    tables: app.selectedTimetables
+                }
+                store.add(item);
+                return tx.complete;
+            }).then(function() {
+                console.log('added item to the store os!');
+            });
+        });
+    };
+
+    if (!('indexedDB' in window)) {
+        console.log('This browser doesn\'t support IndexedDB');
+        return;
+    }
+        
+    var dbPromise = idb.open('parismetro', 1, function(upgradeDb) {
+        if (!upgradeDb.objectStoreNames.contains('timetables')) {
+            upgradeDb.createObjectStore('timetables', {keyPath: 'key'});
+        }
+    });
+
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker
+        .register('./service-worker.js')
+        .then(function() { console.log('Service Worker Registered'); });
+    }
+
+
     /*
      * Fake weather data that is presented when the user first uses the app,
      * or when the user has not saved any cities. See startup code for more
@@ -149,7 +200,6 @@
      */
 
     var initialStationTimetable = {
-
         key: 'metros/1/bastille/A',
         label: 'Bastille, Direction La Défense',
         created: '2017-07-18T17:08:42+02:00',
@@ -164,8 +214,6 @@
                 message: '5 mn'
             }
         ]
-
-
     };
 
 
@@ -180,8 +228,28 @@
      *   SimpleDB (https://gist.github.com/inexorabletash/c8069c042b734519680c)
      ************************************************************************/
 
-    app.getSchedule('metros/1/bastille/A', 'Bastille, Direction La Défense');
-    app.selectedTimetables = [
-        {key: initialStationTimetable.key, label: initialStationTimetable.label}
-    ];
+    dbPromise.then(function(db) {
+        var tx = db.transaction('timetables', 'readonly');
+        var store = tx.objectStore('timetables');
+        
+        return store.openCursor();
+    }).then(function showRange(cursor) {
+        if (!cursor) {
+            app.getSchedule(initialStationTimetable.key, initialStationTimetable.label);
+            app.selectedTimetables = [
+                {key: initialStationTimetable.key, label: initialStationTimetable.label}
+            ];
+
+            app.saveTimetables();
+            return;
+        }
+        
+        app.selectedTimetables = cursor.value.tables;
+
+        app.selectedTimetables.forEach(function(table) {
+            app.getSchedule(table.key, table.label);
+        });
+        
+        return cursor.continue().then(showRange);
+    });
 })();

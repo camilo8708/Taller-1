@@ -95,6 +95,7 @@
         }
 
         if (app.isLoading) {
+            window.cardLoadTime = performance.now();
             app.spinner.setAttribute('hidden', true);
             app.container.removeAttribute('hidden');
             app.isLoading = false;
@@ -229,6 +230,7 @@
      ************************************************************************/
 
     dbPromise.then(function(db) {
+        window.inicialLoadTime = performance.now();
         var tx = db.transaction('timetables', 'readonly');
         var store = tx.objectStore('timetables');
         

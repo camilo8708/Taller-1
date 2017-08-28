@@ -236,6 +236,8 @@
         
         return store.openCursor();
     }).then(function showRange(cursor) {
+        app.selectedTimetables = cursor.value.tables;
+
         if (!cursor) {
             app.getSchedule(initialStationTimetable.key, initialStationTimetable.label);
             app.selectedTimetables = [
@@ -245,8 +247,6 @@
             app.saveTimetables();
             return;
         }
-        
-        app.selectedTimetables = cursor.value.tables;
 
         app.selectedTimetables.forEach(function(table) {
             app.getSchedule(table.key, table.label);
